@@ -10,7 +10,7 @@ mod macros;
 
 /// The address of a StarkNet contract.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Serialize, PartialOrd, Ord)]
-pub struct ContractAddress(StarkHash);
+pub struct ContractAddress(pub(crate) StarkHash);
 
 macros::starkhash251::newtype!(ContractAddress);
 macros::starkhash251::deserialization!(ContractAddress);

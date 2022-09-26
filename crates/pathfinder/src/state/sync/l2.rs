@@ -150,6 +150,59 @@ pub async fn sync(
 
         head = Some((next, block_hash, state_update.new_root));
 
+        // Firehose integration
+        // TODO: add runtime option to toggle this on and off
+        {
+            use sequencer::reply::transaction::Transaction;
+
+            println!("FIRE BLOCK_BEGIN {}", block.block_number);
+
+            for (ind_tx, tx) in block.transactions.iter().enumerate() {
+                println!(
+                    "FIRE BEGIN_TRX {} {}",
+                    tx.hash().0,
+                    match tx {
+                        Transaction::Declare(_) => "DECLARE",
+                        Transaction::Deploy(_) => "DEPLOY",
+                        Transaction::Invoke(_) => "INVOKE_FUNCTION",
+                        Transaction::L1Handler(_) => "L1_HANDLER",
+                    }
+                );
+
+                for (ind_event, event) in
+                    block.transaction_receipts[ind_tx].events.iter().enumerate()
+                {
+                    println!(
+                        "FIRE TRX_BEGIN_EVENT {} {}",
+                        tx.hash().0,
+                        event.from_address.0
+                    );
+
+                    for key in event.keys.iter() {
+                        println!("FIRE TRX_EVENT_KEY {} {} {}", tx.hash().0, ind_event, key.0);
+                    }
+
+                    for data in event.data.iter() {
+                        println!(
+                            "FIRE TRX_EVENT_DATA {} {} {}",
+                            tx.hash().0,
+                            ind_event,
+                            data.0
+                        );
+                    }
+                }
+            }
+
+            println!(
+                "FIRE BLOCK_END {} {} {} {} {}",
+                block.block_number,
+                block.block_hash.0,
+                block.parent_block_hash.0,
+                block.timestamp,
+                block.transactions.len(),
+            );
+        }
+
         let timings = Timings {
             block_download: t_block,
             state_diff_download: t_update,
