@@ -1,0 +1,60 @@
+on:
+  schedule:
+    # 1:05 past midnight UTC
+    - cron: "5 1 * * *"
+
+name: "Sync with upstream"
+jobs:
+  patch:
+    name: "Sync"
+    runs-on: "ubuntu-latest"
+
+    steps:
+      - name: "Checkout source code"
+        uses: "actions/checkout@v3"
+        with:
+          submodules: true
+
+      - name: "Setup toolchain"
+        uses: "actions-rs/toolchain@v1"
+        with:
+          toolchain: "stable"
+          profile: "minimal"
+          override: true
+
+      - uses: "Swatinem/rust-cache@v1"
+        with:
+          cache-on-failure: true
+
+      - name: "Config Git"
+        run: |
+          git config user.name "Jonathan LEI"
+          git config user.email "me@xjonathan.dev"
+
+      - name: "Update main"
+        run: |
+          git fetch
+          git remote add upstream https://github.com/eqlabs/pathfinder
+          git fetch upstream
+          git checkout main
+          git reset --hard upstream/main
+          git checkout origin/home ./README.md
+          git checkout origin/home ./.github/
+          git add .
+          git commit -m "chore: README and CI changes"
+
+      - name: "Update patch"
+        run: |
+          git checkout patch
+          git rebase main
+
+      - name: "Cargo build"
+        run: |
+          cargo build --all --all-targets
+
+      - name: "Push branches"
+        run: |
+          git checkout main
+          git push --force-with-lease
+          git checkout patch
+          git push --force-with-lease
