@@ -5,7 +5,7 @@ on:
 
 name: "Sync with upstream"
 jobs:
-  patch:
+  sync:
     name: "Sync"
     runs-on: "ubuntu-latest"
 
@@ -16,6 +16,7 @@ jobs:
       - name: "Checkout source code"
         uses: "actions/checkout@v3"
         with:
+          fetch-depth: 0
           submodules: true
 
       - name: "Setup toolchain"
@@ -34,39 +35,33 @@ jobs:
           git config user.name "Jonathan LEI"
           git config user.email "me@xjonathan.dev"
 
-      - name: "Update branches"
+      - name: "Update branch"
         run: |
-          git fetch
+          git fetch origin
           git remote add upstream https://github.com/eqlabs/pathfinder
-          git fetch upstream
+          git fetch upstream --no-tags
 
-          if [[ $($(git rev-list $(git merge-base origin/$DEFAULT_BRANCH upstream/$DEFAULT_BRANCH)..upstream/$DEFAULT_BRANCH) | wc -l) -ne 0 ]]; then 
-            # Updates default branch
+          MERGE_BASE=$(git merge-base origin/$DEFAULT_BRANCH upstream/$DEFAULT_BRANCH)
+
+          # Don't force push unnecessarily unless changes are detected
+          if [[ $(git rev-list $MERGE_BASE..upstream/$DEFAULT_BRANCH | wc -l) -ne 0 ]]; then 
+            # Brings files from `home` to default branch
             git checkout $DEFAULT_BRANCH
             git reset --hard upstream/$DEFAULT_BRANCH
-            git checkout origin/home ./README.md
-            git checkout origin/home ./.github/
+            git checkout origin/home .
             git add .
             git commit -m "chore: README and CI changes"
 
-            # Points `patch` to local default branch
-            git checkout patch
-            git reset --hard $DEFAULT_BRANCH
+            # Here, we pick commits on the default branch except the first one. We do this instead
+            # of a naive rebase because the `home` branch might have changed, causing merge
+            # conflicts.
+            COMMIT_COUNT=$(git rev-list $MERGE_BASE..origin/$DEFAULT_BRANCH | wc -l)
+            git cherry-pick origin/$DEFAULT_BRANCH^$(($COMMIT_COUNT-1))..origin/$DEFAULT_BRANCH
 
-            # Here, we pick commits on `patch` except the first one. We do this instead of a naive
-            # rebase on the default branch because the commit made on the default branch might have
-            # changed in content, causing merge conflicts.
-            MERGE_BASE=$(git merge-base origin/patch upstream/$DEFAULT_BRANCH)
-            COMMIT_COUNT=$(git rev-list $MERGE_BASE..origin/patch | wc -l)
-            git cherry-pick origin/patch^$(($COMMIT_COUNT-1))..origin/patch
-
-            # Makes sure the updated local `patch` branch builds
+            # Makes sure the updated local branch builds
             cargo build --all --all-targets
 
-            # Push updated branches
-            git checkout $DEFAULT_BRANCH
-            git push --force-with-lease
-            git checkout patch
+            # Push updated branch
             git push --force-with-lease
           else
             echo "No changes detected on upstream $DEFAULT_BRANCH"
