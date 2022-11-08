@@ -9,6 +9,9 @@ jobs:
     name: "Sync"
     runs-on: "ubuntu-latest"
 
+    env:
+      DEFAULT_BRANCH: "main"
+
     steps:
       - name: "Checkout source code"
         uses: "actions/checkout@v3"
@@ -31,13 +34,13 @@ jobs:
           git config user.name "Jonathan LEI"
           git config user.email "me@xjonathan.dev"
 
-      - name: "Update main"
+      - name: "Update default branch"
         run: |
           git fetch
           git remote add upstream https://github.com/eqlabs/pathfinder
           git fetch upstream
-          git checkout main
-          git reset --hard upstream/main
+          git checkout $DEFAULT_BRANCH
+          git reset --hard upstream/$DEFAULT_BRANCH
           git checkout origin/home ./README.md
           git checkout origin/home ./.github/
           git add .
@@ -45,14 +48,14 @@ jobs:
 
       - name: "Update patch"
         run: |
-          # First, point `patch` to local `main`
+          # First, point `patch` to local default branch
           git checkout patch
-          git reset --hard main
+          git reset --hard $DEFAULT_BRANCH
 
-          # Here, we pick commits on `patch` except the first one (which is the old `main` update).
-          # We do this instead of a naive rebase on `main` because the commit made on `main` could
-          # have changed in content.
-          MERGE_BASE=$(git merge-base origin/patch upstream/main)
+          # Here, we pick commits on `patch` except the first one. We do this instead of a naive
+          # rebase on the default branch because the commit made on the default branch might have
+          # changed in content, causing merge conflicts.
+          MERGE_BASE=$(git merge-base origin/patch upstream/$DEFAULT_BRANCH)
           COMMIT_COUNT=$(git rev-list $MERGE_BASE..origin/patch | wc -l)
           git cherry-pick origin/patch^$(($COMMIT_COUNT-1))..origin/patch
 
@@ -62,7 +65,7 @@ jobs:
 
       - name: "Push branches"
         run: |
-          git checkout main
+          git checkout $DEFAULT_BRANCH
           git push --force-with-lease
           git checkout patch
           git push --force-with-lease
