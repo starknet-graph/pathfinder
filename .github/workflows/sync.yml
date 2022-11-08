@@ -45,8 +45,16 @@ jobs:
 
       - name: "Update patch"
         run: |
+          # First, point `patch` to local `main`
           git checkout patch
-          git rebase main
+          git reset --hard main
+
+          # Here, we pick commits on `patch` except the first one (which is the old `main` update).
+          # We do this instead of a naive rebase on `main` because the commit made on `main` could
+          # have changed in content.
+          MERGE_BASE=$(git merge-base origin/patch upstream/main)
+          COMMIT_COUNT=$(git rev-list $MERGE_BASE..origin/patch | wc -l)
+          git cherry-pick origin/patch^$(($COMMIT_COUNT-1))..origin/patch
 
       - name: "Cargo build"
         run: |
