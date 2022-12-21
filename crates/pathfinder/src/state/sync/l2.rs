@@ -279,6 +279,55 @@ where
             BlockValidationMode::AllowMismatch => (signature, state_update),
         };
 
+        // Firehose integration
+        // TODO: add runtime option to toggle this on and off
+        {
+            use pathfinder_common::transaction::TransactionVariant;
+
+            println!("FIRE BLOCK_BEGIN {}", block.block_number);
+
+            for (ind_tx, tx) in block.transactions.iter().enumerate() {
+                println!(
+                    "FIRE BEGIN_TRX {} {}",
+                    tx.hash,
+                    match tx.variant {
+                        TransactionVariant::DeclareV0(_)
+                        | TransactionVariant::DeclareV1(_)
+                        | TransactionVariant::DeclareV2(_)
+                        | TransactionVariant::DeclareV3(_) => "DECLARE",
+                        TransactionVariant::Deploy(_) => "DEPLOY",
+                        TransactionVariant::DeployAccountV1(_)
+                        | TransactionVariant::DeployAccountV3(_) => "DEPLOY_ACCOUNT",
+                        TransactionVariant::InvokeV0(_)
+                        | TransactionVariant::InvokeV1(_)
+                        | TransactionVariant::InvokeV3(_) => "INVOKE_FUNCTION",
+                        TransactionVariant::L1Handler(_) => "L1_HANDLER",
+                    }
+                );
+
+                for (ind_event, event) in block.transaction_receipts[ind_tx].1.iter().enumerate() {
+                    println!("FIRE TRX_BEGIN_EVENT {} {}", tx.hash, event.from_address.0);
+
+                    for key in event.keys.iter() {
+                        println!("FIRE TRX_EVENT_KEY {} {} {}", tx.hash, ind_event, key.0);
+                    }
+
+                    for data in event.data.iter() {
+                        println!("FIRE TRX_EVENT_DATA {} {} {}", tx.hash, ind_event, data.0);
+                    }
+                }
+            }
+
+            println!(
+                "FIRE BLOCK_END {} {} {} {} {}",
+                block.block_number,
+                block.block_hash.0,
+                block.parent_block_hash.0,
+                block.timestamp,
+                block.transactions.len(),
+            );
+        }
+
         head = Some((next, block.block_hash, state_update.state_commitment));
         blocks.push(next, block.block_hash, state_update.state_commitment);
 
