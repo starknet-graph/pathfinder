@@ -32,7 +32,7 @@ jobs:
 
       - name: "Build Docker image"
         run: |
-          docker build -t ${DOCKER_REPOSITORY}:${VERSION} -f ./Dockerfile .
+          docker buildx build -t ${DOCKER_REPOSITORY}:${VERSION} -f ./Dockerfile .
 
       - name: "Push Docker image"
         run: |
