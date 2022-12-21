@@ -32,7 +32,9 @@ jobs:
 
       - name: "Build Docker image"
         run: |
-          docker buildx build -t ${DOCKER_REPOSITORY}:${VERSION} -f ./Dockerfile .
+          docker buildx build \
+            --build-arg PATHFINDER_FORCE_VERSION="v${VERSION}" \
+            -t ${DOCKER_REPOSITORY}:${VERSION} -f ./Dockerfile .
 
       - name: "Push Docker image"
         run: |
