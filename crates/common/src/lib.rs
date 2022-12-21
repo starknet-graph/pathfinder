@@ -14,7 +14,7 @@ pub mod test_utils;
 
 /// The address of a StarkNet contract.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Serialize, PartialOrd, Ord)]
-pub struct ContractAddress(Felt);
+pub struct ContractAddress(pub Felt);
 
 macros::starkhash251::newtype!(ContractAddress);
 macros::starkhash251::deserialization!(ContractAddress);
