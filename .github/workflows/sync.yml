@@ -32,6 +32,10 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: "Install dependencies"
+        run: |
+          sudo apt-get install protobuf-compiler
+
       - name: "Config Git"
         run: |
           git config user.name "Jonathan LEI"
