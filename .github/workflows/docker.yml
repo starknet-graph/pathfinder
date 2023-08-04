@@ -1,73 +1,41 @@
-name: Docker
+name: Build Docker Image
 
 on:
-  workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
+  create:
 
 jobs:
-  update-docker-images:
+  build:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+    name: "Build"
+    runs-on: "ubuntu-latest"
+
     env:
-      # Workaround for https://github.com/rust-lang/cargo/issues/8719#issuecomment-1516492970
-      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-    runs-on: pathfinder-large-ubuntu
+      DOCKER_REPOSITORY: "starknet/pathfinder-firehose"
+
     steps:
-      - name: Determine Docker image metadata
-        id: meta
-        uses: docker/metadata-action@v4
+      - name: "Checkout"
+        uses: "actions/checkout@v2"
+
+      - name: "Login to Docker Hub"
+        uses: "docker/login-action@v1.6.0"
         with:
-          images: eqlabs/pathfinder
-          tags: |
-            type=semver,pattern={{raw}}
-            # NOTE: pre-release builds don't update `latest` tag, so we force-update that for pushed tags
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-            # snapshot tag for manually triggered builds
-            type=raw,value=snapshot-{{branch}}-{{sha}},enable=${{ github.event_name == 'workflow_dispatch' }}
-      - name: Checkout sources
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Generate version
-        id: generate_version
+          username: "${{ secrets.DOCKER_HUB_USERNAME }}"
+          password: "${{ secrets.DOCKER_HUB_PASSWORD }}"
+
+      - name: "Determine image version"
         run: |
-          echo -n "pathfinder_version=" >> $GITHUB_OUTPUT
-          git describe --tags --dirty >> $GITHUB_OUTPUT
-      - name: Set up QEMU
-        id: qemu
-        uses: docker/setup-qemu-action@v2
-        with:
-          image: tonistiigi/binfmt:latest
-          platforms: all
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v2
-        with:
-          config-inline: |
-            [worker.oci]
-              max-parallelism = 4
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-      # Required for git security reasons. See https://github.com/rustyhorde/vergen/pull/126#issuecomment-1201088162
-      - name: Vergen git safe directory
-        run: git config --global --add safe.directory /workspace
-      - name: Build
-        id: docker_build
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          platforms: |
-            linux/amd64
-            linux/arm64
-          file: ./Dockerfile
-          build-args: |
-            PATHFINDER_FORCE_VERSION=${{ steps.generate_version.outputs.pathfinder_version }}
-          builder: ${{ steps.buildx.outputs.name }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          version_line="${{ github.ref }}"
+          regex="^refs\/tags\/v(.*)$"
+          [[ $version_line =~ $regex ]];
+          echo "VERSION=${BASH_REMATCH[1]}" >> $GITHUB_ENV
+
+      - name: "Build Docker image"
+        run: |
+          docker buildx build \
+            --build-arg PATHFINDER_FORCE_VERSION="v${VERSION}" \
+            -t ${DOCKER_REPOSITORY}:${VERSION} -f ./Dockerfile .
+
+      - name: "Push Docker image"
+        run: |
+          docker push ${DOCKER_REPOSITORY}:${VERSION}
