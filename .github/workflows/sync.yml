@@ -32,9 +32,8 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: "Install dependencies"
-        run: |
-          sudo apt-get install protobuf-compiler
+      - name: "Install protoc"
+        uses: "Noelware/setup-protoc@1.1.0"
 
       - name: "Config Git"
         run: |
