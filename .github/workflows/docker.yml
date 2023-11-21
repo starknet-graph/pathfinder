@@ -1,73 +1,125 @@
-name: Docker
+name: "Build multi-arch images"
 
 on:
-  workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - "v*.*.*"
 
 jobs:
-  update-docker-images:
-    env:
-      # Workaround for https://github.com/rust-lang/cargo/issues/8719#issuecomment-1516492970
-      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-    runs-on: pathfinder-large-ubuntu
+  image-info:
+    name: "Extract crate info"
+    runs-on: "ubuntu-latest"
+    outputs:
+      version: ${{ steps.derive.outputs.version }}
+
     steps:
-      - name: Determine Docker image metadata
-        id: meta
-        uses: docker/metadata-action@v4
-        with:
-          images: eqlabs/pathfinder
-          tags: |
-            type=semver,pattern={{raw}}
-            # NOTE: pre-release builds don't update `latest` tag, so we force-update that for pushed tags
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-            # snapshot tag for manually triggered builds
-            type=raw,value=snapshot-{{branch}}-{{sha}},enable=${{ github.event_name == 'workflow_dispatch' }}
-      - name: Checkout sources
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Generate version
-        id: generate_version
+      - id: "derive"
+        name: "Derive image info from Git tag"
         run: |
-          echo -n "pathfinder_version=" >> $GITHUB_OUTPUT
-          git describe --tags --dirty >> $GITHUB_OUTPUT
-      - name: Set up QEMU
-        id: qemu
-        uses: docker/setup-qemu-action@v2
+          FULL_REF="${{ github.ref }}"
+          REGEX="^refs\/tags\/v(.*)$"
+          [[ $FULL_REF =~ $REGEX ]];
+
+          echo "version=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+
+  build-amd64:
+    name: "Build for linux/amd64"
+    runs-on: "ubuntu-latest"
+    needs:
+      - "image-info"
+
+    env:
+      DOCKER_REPOSITORY: "starknet/pathfinder-firehose"
+
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v3"
+
+      - name: "Login to Docker Hub"
+        uses: "docker/login-action@v1.6.0"
         with:
-          image: tonistiigi/binfmt:latest
-          platforms: all
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v2
+          username: "${{ secrets.DOCKER_HUB_USERNAME }}"
+          password: "${{ secrets.DOCKER_HUB_PASSWORD }}"
+
+      - name: "Build Docker image"
+        run: |
+          docker buildx build \
+            --build-arg PATHFINDER_FORCE_VERSION="v${VERSION}" \
+            --platform "linux/amd64" \
+            -t ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-amd64 -f ./Dockerfile .
+
+      - name: "Push Docker image"
+        run: |
+          docker push ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-amd64
+
+  build-arm64:
+    name: "Build for linux/arm64"
+    runs-on: "ubuntu-latest"
+    needs:
+      - "image-info"
+
+    env:
+      DOCKER_REPOSITORY: "starknet/pathfinder-firehose"
+
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v3"
+
+      - name: "Login to Docker Hub"
+        uses: "docker/login-action@v1.6.0"
         with:
-          config-inline: |
-            [worker.oci]
-              max-parallelism = 4
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
+          username: "${{ secrets.DOCKER_HUB_USERNAME }}"
+          password: "${{ secrets.DOCKER_HUB_PASSWORD }}"
+
+      - name: "Set up Docker Buildx"
+        run: |
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          sudo systemctl restart docker
+          docker buildx create --name multi_builder
+          docker buildx use multi_builder
+
+      - name: "Build Docker image"
+        run: |
+          docker buildx build \
+            --build-arg PATHFINDER_FORCE_VERSION="v${VERSION}" \
+            --platform "linux/arm64/v8" \
+            --output=type=docker \
+            -t ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-arm64 -f ./Dockerfile .
+
+      - name: "Push Docker image"
+        run: |
+          docker push ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-arm64
+
+  push:
+    name: "Push multi-arch manifest"
+    runs-on: "ubuntu-latest"
+    needs:
+      - "build-amd64"
+      - "build-arm64"
+      - "image-info"
+
+    env:
+      DOCKER_REPOSITORY: "starknet/pathfinder-firehose"
+
+    steps:
+      - name: "Login to Docker Hub"
+        uses: "docker/login-action@v1.6.0"
         with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-      # Required for git security reasons. See https://github.com/rustyhorde/vergen/pull/126#issuecomment-1201088162
-      - name: Vergen git safe directory
-        run: git config --global --add safe.directory /workspace
-      - name: Build
-        id: docker_build
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          platforms: |
-            linux/amd64
-            linux/arm64
-          file: ./Dockerfile
-          build-args: |
-            PATHFINDER_FORCE_VERSION=${{ steps.generate_version.outputs.pathfinder_version }}
-          builder: ${{ steps.buildx.outputs.name }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          username: "${{ secrets.DOCKER_HUB_USERNAME }}"
+          password: "${{ secrets.DOCKER_HUB_PASSWORD }}"
+
+      - name: "Pull Docker images"
+        run: |
+          docker pull ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-amd64
+          docker pull ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-arm64
+
+      - name: "Push Docker image"
+        run: |
+          docker manifest create ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }} \
+            ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-amd64 \
+            ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-arm64
+          docker manifest create ${DOCKER_REPOSITORY}:latest \
+            ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-amd64 \
+            ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}-arm64
+          docker manifest push ${DOCKER_REPOSITORY}:${{ needs.image-info.outputs.version }}
+          docker manifest push ${DOCKER_REPOSITORY}:latest
